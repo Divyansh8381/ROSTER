@@ -52,6 +52,7 @@ body{
 }
 .upload-box label:hover{transform:translateY(-2px) scale(1.02);box-shadow:0 14px 34px rgba(236,72,153,.55)}
 .upload-box p{color:#64748b;font-size:.8rem;margin-top:12px}
+.load-status{text-align:center;color:#64748b;font-size:.85rem;margin:22px 0}
 
 /* ---------- MAIN LIVE ---------- */
 .main-live{
@@ -234,10 +235,12 @@ td.date-cell{text-align:center;font-weight:800;font-size:.78rem;min-width:46px}
   <div class="sub">real-time updates · <b id="clock">--:--:--</b></div>
 </div>
 
-<div class="upload-box" id="uploadBox">
+<div class="load-status" id="loadStatus">Loading roster...</div>
+
+<div class="upload-box" id="uploadBox" style="display:none">
   <input type="file" id="fileInput" accept=".xlsx,.xls">
   <label for="fileInput">📁 Excel File Upload karo</label>
-  <p>Apni "Centralised Roaster for Peak (2026).xlsx" select karo</p>
+  <p>Automatic roster loading failed. Select the Excel roster to continue.</p>
 </div>
 
 <div class="main-live" id="mainLive" style="display:none">
@@ -311,23 +314,51 @@ let activeSheet = null;
 /* ============================================================
    EXCEL PARSER
    ============================================================ */
+function loadWorkbook(data) {
+  const wb = XLSX.read(new Uint8Array(data), { type:'array', cellDates:false });
+  if (!wb.SheetNames.length) throw new Error('The workbook has no sheets.');
+  DASHBOARD = {};
+  wb.SheetNames.forEach(sn => { DASHBOARD[sn] = parseSheet(wb.Sheets[sn], sn); });
+  document.getElementById('loadStatus').style.display = 'none';
+  document.getElementById('uploadBox').style.display = 'none';
+  document.getElementById('mainLive').style.display = 'inline-flex';
+  activeSheet = wb.SheetNames[0];
+  renderTabs();
+  switchTab(activeSheet);
+  startClock();
+}
+
 document.getElementById('fileInput').addEventListener('change', e => {
   const file = e.target.files[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = evt => {
-    const wb = XLSX.read(new Uint8Array(evt.target.result), { type:'array', cellDates:false });
-    DASHBOARD = {};
-    wb.SheetNames.forEach(sn => { DASHBOARD[sn] = parseSheet(wb.Sheets[sn], sn); });
-    document.getElementById('uploadBox').style.display = 'none';
-    document.getElementById('mainLive').style.display = 'inline-flex';
-    activeSheet = wb.SheetNames[0];
-    renderTabs();
-    switchTab(activeSheet);
-    startClock();
+    try {
+      loadWorkbook(evt.target.result);
+    } catch (error) {
+      document.getElementById('loadStatus').textContent = `Unable to read the selected workbook: ${error.message}`;
+      document.getElementById('loadStatus').style.display = 'block';
+    }
+  };
+  reader.onerror = () => {
+    document.getElementById('loadStatus').textContent = 'Unable to read the selected workbook.';
+    document.getElementById('loadStatus').style.display = 'block';
   };
   reader.readAsArrayBuffer(file);
 });
+
+async function loadBundledWorkbook() {
+  try {
+    const response = await fetch('./Copy of Centralised Roaster for Peak (2026) (1).xlsx');
+    if (!response.ok) throw new Error(`Server returned ${response.status}`);
+    loadWorkbook(await response.arrayBuffer());
+  } catch (error) {
+    document.getElementById('loadStatus').textContent = 'Unable to load the roster automatically. Upload the Excel file below.';
+    document.getElementById('uploadBox').style.display = 'block';
+  }
+}
+
+loadBundledWorkbook();
 
 function parseSheet(ws, sheetName) {
   const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:"", raw:false });
